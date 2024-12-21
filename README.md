@@ -9,9 +9,9 @@ Enterprise-ready Camunda BPM Platform 7 Helm chart with full Istio service mesh 
 ## TL;DR
 
 ```bash
-helm repo add lazarevcloud https://lazarev.cloud
+helm repo add lazarevcloud https://helm.lazarev.cloud
 helm repo update
-helm install my-camunda lazarevcloud/camunda-bpm-platform
+helm install my-camunda lazarevcloud/camunda-7-bpm-platform
 ```
 
 ## Features
@@ -69,19 +69,3 @@ See [values.yaml](./values.yaml) for the full list of parameters.
 ## Documentation
 
 [Complete documentation](https://docs.camunda.org/manual/7.18/)
-
-## License
-
-Copyright &copy; 2024 LazarevCloud
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
