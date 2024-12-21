@@ -1,0 +1,33 @@
+# templates/database/servicemonitor.yaml
+{{- if and .Values.database.monitoring.enabled .Values.database.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}-db
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+    {{- with .Values.database.monitoring.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "camunda-bpm-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: database
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.database.monitoring.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.database.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+      path: /metrics
+      {{- if .Values.database.monitoring.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml .Values.database.monitoring.serviceMonitor.metricRelabelings | nindent 8 }}
+      {{- end }}
+      {{- if .Values.database.monitoring.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml .Values.database.monitoring.serviceMonitor.relabelings | nindent 8 }}
+      {{- end }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}

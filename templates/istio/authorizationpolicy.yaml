@@ -1,0 +1,67 @@
+# templates/istio/authorizationpolicy.yaml
+{{- if and .Values.istio.enabled .Values.istio.authorizationPolicy.enabled }}
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "camunda-bpm-platform.selectorLabels" . | nindent 6 }}
+  action: ALLOW
+  rules:
+    # Allow health check endpoints
+    - to:
+        - operation:
+            paths: 
+              - "/actuator/health/*"
+              - "/actuator/prometheus"
+              - "/metrics"
+            methods: ["GET"]
+    
+    # Allow Camunda API endpoints with authentication
+    - to:
+        - operation:
+            paths: 
+              - "/engine-rest/*"
+              - "/camunda/*"
+            methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+      {{- if .Values.istio.authorizationPolicy.jwt.enabled }}
+      from:
+        - source:
+            requestPrincipals: ["*"]
+      when:
+        - key: request.auth.claims[iss]
+          values: 
+            {{- range .Values.istio.authorizationPolicy.jwt.issuers }}
+            - {{ . | quote }}
+            {{- end }}
+      {{- end }}
+    
+    # Allow specific namespaces if configured
+    {{- with .Values.istio.authorizationPolicy.allowedNamespaces }}
+    - from:
+        - source:
+            namespaces:
+            {{- range . }}
+              - {{ . | quote }}
+            {{- end }}
+    {{- end }}
+    
+    # Allow specific principals if configured
+    {{- with .Values.istio.authorizationPolicy.allowedPrincipals }}
+    - from:
+        - source:
+            principals:
+            {{- range . }}
+              - {{ . | quote }}
+            {{- end }}
+    {{- end }}
+
+    # Custom rules defined in values
+    {{- with .Values.istio.authorizationPolicy.customRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

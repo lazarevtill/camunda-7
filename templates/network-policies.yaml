@@ -1,0 +1,110 @@
+# templates/network-policies.yaml
+{{- if .Values.security.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "camunda-bpm-platform.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress from Istio ingress gateway if enabled
+    {{- if .Values.istio.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              istio-injection: enabled
+        - podSelector:
+            matchLabels:
+              app: istio-ingressgateway
+      ports:
+        - port: {{ .Values.service.port }}
+          protocol: TCP
+    {{- end }}
+    
+    # Allow ingress from standard ingress if enabled
+    {{- if .Values.ingress.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - port: {{ .Values.service.port }}
+          protocol: TCP
+    {{- end }}
+    
+    # Allow prometheus scraping if metrics enabled
+    {{- if .Values.monitoring.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: {{ .Values.metrics.port }}
+          protocol: TCP
+    {{- end }}
+    
+    # Custom ingress rules
+    {{- with .Values.security.networkPolicy.additionalIngressRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  
+  egress:
+    # Allow egress to PostgreSQL
+    - to:
+        {{- if .Values.postgresql.enabled }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- else }}
+        - ipBlock:
+            cidr: {{ .Values.externalDatabase.host }}/32
+        {{- end }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    
+    # Allow egress to Vault if enabled
+    {{- if .Values.vault.enabled }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.vault.namespace | default "vault" }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vault
+      ports:
+        - port: 8200
+          protocol: TCP
+    {{- end }}
+    
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+        - podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    
+    # Custom egress rules
+    {{- with .Values.security.networkPolicy.additionalEgressRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

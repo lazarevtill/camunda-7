@@ -1,0 +1,99 @@
+# templates/database/monitoring-configmap.yaml
+{{- if .Values.database.monitoring.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}-db-monitoring
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+data:
+  # PostgreSQL monitoring queries
+  postgres-queries.yaml: |
+    pg_database_size:
+      query: "SELECT datname, pg_database_size(datname) as size FROM pg_database"
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - size:
+            usage: "GAUGE"
+            description: "Disk space used by the database"
+    
+    pg_stat_activity:
+      query: |
+        SELECT state, count(*) as count 
+        FROM pg_stat_activity 
+        GROUP BY state
+      metrics:
+        - state:
+            usage: "LABEL"
+            description: "Connection state"
+        - count:
+            usage: "GAUGE"
+            description: "Number of connections in this state"
+    
+    pg_locks:
+      query: |
+        SELECT mode, count(*) as count 
+        FROM pg_locks 
+        GROUP BY mode
+      metrics:
+        - mode:
+            usage: "LABEL"
+            description: "Type of lock"
+        - count:
+            usage: "GAUGE"
+            description: "Number of locks"
+    
+    camunda_specific:
+      query: |
+        SELECT 
+          COUNT(*) as total_processes,
+          COUNT(CASE WHEN EXECUTION_STATE = 'ACTIVE' THEN 1 END) as active_processes,
+          COUNT(CASE WHEN EXECUTION_STATE = 'SUSPENDED' THEN 1 END) as suspended_processes
+        FROM camunda.ACT_RU_EXECUTION
+      metrics:
+        - total_processes:
+            usage: "GAUGE"
+            description: "Total number of process instances"
+        - active_processes:
+            usage: "GAUGE"
+            description: "Number of active process instances"
+        - suspended_processes:
+            usage: "GAUGE"
+            description: "Number of suspended process instances"
+
+  # Monitoring configuration for Prometheus
+  prometheus-config.yaml: |
+    global:
+      scrape_interval: {{ .Values.database.monitoring.scrapeInterval | default "30s" }}
+      evaluation_interval: {{ .Values.database.monitoring.evaluationInterval | default "30s" }}
+    
+    rules:
+      - alert: PostgreSQLHighConnections
+        expr: pg_stat_activity_count > {{ .Values.database.monitoring.alerts.maxConnections | default 80 }}
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High number of PostgreSQL connections
+          description: PostgreSQL instance has too many connections
+      
+      - alert: PostgreSQLSlowQueries
+        expr: rate(pg_stat_activity_max_tx_duration{datname="{{ .Values.postgresql.auth.database }}"}[5m]) > {{ .Values.database.monitoring.alerts.slowQueryThreshold | default 30 }}
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Slow PostgreSQL queries detected
+          description: Database has queries running longer than threshold
+      
+      - alert: PostgreSQLHighReplication
+        expr: pg_replication_lag > {{ .Values.database.monitoring.alerts.replicationLagThreshold | default 300 }}
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High PostgreSQL replication lag
+          description: PostgreSQL replication is lagging behind master
+{{- end }}

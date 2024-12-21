@@ -1,0 +1,103 @@
+# templates/database/backup-cronjob.yaml
+{{- if .Values.database.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}-db-backup
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.database.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.database.backup.historyLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.database.backup.failedHistoryLimit | default 1 }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "camunda-bpm-platform.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: db-backup
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: backup
+              image: {{ .Values.database.backup.image.repository }}:{{ .Values.database.backup.image.tag }}
+              imagePullPolicy: {{ .Values.database.backup.image.pullPolicy }}
+              env:
+                - name: BACKUP_NAME
+                  value: {{ include "camunda-bpm-platform.fullname" . }}-{{ now | date "2006-01-02-15-04" }}
+                - name: PGHOST
+                  {{- if .Values.postgresql.enabled }}
+                  value: {{ include "camunda-bpm-platform.fullname" . }}-postgresql
+                  {{- else }}
+                  value: {{ .Values.database.host | quote }}
+                  {{- end }}
+                - name: PGPORT
+                  {{- if .Values.postgresql.enabled }}
+                  value: "5432"
+                  {{- else }}
+                  value: {{ .Values.database.port | quote }}
+                  {{- end }}
+                - name: PGDATABASE
+                  {{- if .Values.postgresql.enabled }}
+                  value: {{ .Values.postgresql.auth.database | quote }}
+                  {{- else }}
+                  value: {{ .Values.database.name | quote }}
+                  {{- end }}
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "camunda-bpm-platform.fullname" . }}-db-credentials
+                      key: username
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "camunda-bpm-platform.fullname" . }}-db-credentials
+                      key: password
+                {{- if .Values.database.backup.s3.enabled }}
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "camunda-bpm-platform.fullname" . }}-backup-credentials
+                      key: aws-access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "camunda-bpm-platform.fullname" . }}-backup-credentials
+                      key: aws-secret-access-key
+                - name: S3_BUCKET
+                  value: {{ .Values.database.backup.s3.bucket | quote }}
+                - name: S3_PREFIX
+                  value: {{ .Values.database.backup.s3.prefix | quote }}
+                {{- end }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  echo "Starting database backup..."
+                  pg_dump -Fc > /backup/$BACKUP_NAME.dump
+                  {{- if .Values.database.backup.s3.enabled }}
+                  echo "Uploading backup to S3..."
+                  aws s3 cp /backup/$BACKUP_NAME.dump s3://$S3_BUCKET/$S3_PREFIX/$BACKUP_NAME.dump
+                  {{- end }}
+                  echo "Backup completed successfully"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              {{- if .Values.database.backup.persistentVolume.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ include "camunda-bpm-platform.fullname" . }}-backup
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+{{- end }}

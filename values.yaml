@@ -1,0 +1,495 @@
+# =============================================================================
+# Camunda BPM Platform Enterprise Helm Chart Configuration
+# =============================================================================
+#
+# This values.yaml file contains all possible configurations for the Camunda BPM
+# Platform Helm chart. It serves both as a reference and as a configuration file.
+#
+# Quick Start:
+# 1. Configure your database (PostgreSQL section)
+# 2. Set up security contexts
+# 3. Configure ingress or Istio
+# 4. Set up monitoring if needed
+#
+# For production deployments, make sure to:
+# - Set proper resource limits
+# - Configure proper security settings
+# - Set up proper monitoring
+# - Configure backups
+# - Set up proper secret management (Vault recommended)
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+global:
+  # Environment name (dev, staging, prod)
+  environment: "prod"
+  
+  # Global labels to be applied to all resources
+  labels: {}
+    # environment: production
+    # team: platform
+  
+  # Global annotations
+  annotations: {}
+
+# =============================================================================
+# Deployment Configuration
+# =============================================================================
+# Number of pod replicas
+replicaCount: 1
+
+# Image Configuration
+image:
+  repository: camunda/camunda-bpm-platform
+  tag: "7.19.0"  # Specify version or use Chart.appVersion
+  pullPolicy: IfNotPresent
+  # Optional image pull secrets
+  pullSecrets: []
+  # - name: regcred
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+
+# Pod scheduling configuration
+affinity: {}
+  # podAntiAffinity:
+  #   preferredDuringSchedulingIgnoredDuringExecution:
+  #   - weight: 100
+  #     podAffinityTerm:
+  #       labelSelector:
+  #         matchExpressions:
+  #         - key: app.kubernetes.io/name
+  #           operator: In
+  #           values:
+  #           - camunda-bpm-platform
+  #       topologyKey: kubernetes.io/hostname
+
+# Node selection configuration
+nodeSelector: {}
+  # disktype: ssd
+
+# Pod tolerations
+tolerations: []
+  # - key: "key"
+  #   operator: "Equal"
+  #   value: "value"
+  #   effect: "NoSchedule"
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# =============================================================================
+# Database Configuration
+# =============================================================================
+postgresql:
+  # Enable built-in PostgreSQL (set to false if using external database)
+  enabled: true
+  failover:
+    enabled: true
+    maxRetries: 3
+    retryInterval: 10
+  
+  # Authentication settings
+  auth:
+    # Username for PostgreSQL (should be changed in production)
+    username: camunda
+    # Password must be provided during installation if existingSecret is not set
+    # password: ""
+    # Database name
+    database: camunda
+    # Existing secret containing database credentials
+    auth:
+      existingSecret: ""
+      passwordRotation:
+        enabled: true
+        interval: "720h" # 30 days
+
+    
+  # High availability settings
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+      # storageClass: "standard"
+    
+  # PostgreSQL configuration
+  configuration:
+    max_connections: 100
+    shared_buffers: 256MB
+    effective_cache_size: 768MB
+    maintenance_work_mem: 64MB
+    checkpoint_completion_target: 0.9
+    wal_buffers: 16MB
+    default_statistics_target: 100
+    random_page_cost: 4
+    effective_io_concurrency: 2
+    work_mem: 4MB
+    min_wal_size: 1GB
+    max_wal_size: 4GB
+
+# External database configuration
+externalDatabase:
+  host: ""
+  port: 5432
+  database: ""
+  username: ""
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "password"
+
+# =============================================================================
+# Security Configuration
+# =============================================================================
+security:
+  podSecurityContext:
+    runAsUser: 1000
+    runAsNonRoot: true
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+    capabilities:
+      drop: ["ALL"]
+
+    
+  # Container Security Context
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    privileged: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile:
+      type: RuntimeDefault
+    
+  # Network Policies
+  networkPolicy:
+    enabled: true
+    ingressRules:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                name: ingress-nginx
+    egressRules:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                name: database
+
+  
+  # RBAC Configuration
+  rbac:
+    enabled: true
+    additionalRoles: []
+  
+  # TLS Configuration
+  tls:
+    enabled: false
+    secretName: ""
+    cert: ""
+    key: ""
+  
+  # Pod Security Standards
+  podSecurityStandards:
+    enabled: true
+    level: restricted  # baseline, restricted
+    
+  # Secret Management
+  secrets:
+    encryption:
+      enabled: true
+      provider: "vault"  # vault, aws-kms, gcp-kms
+      
+  # Certificate Management
+  certificates:
+    enabled: true
+    provider: "cert-manager"
+    issuer:
+      kind: ClusterIssuer
+      name: "letsencrypt-prod"
+  
+  # OAuth2/OIDC Configuration
+  oauth:
+    enabled: false
+    issuer: ""
+    clientId: ""
+    clientSecret: ""
+    scopes: []
+    additionalConfig: {}
+
+# =============================================================================
+# Istio Integration
+# =============================================================================
+istio:
+  enabled: true
+  
+  # Gateway Configuration
+  gateway:
+    enabled: true
+    hosts:
+      - "camunda.example.com"
+    tls:
+      enabled: false
+      secretName: "camunda-tls"
+  
+  # Virtual Service Configuration
+  virtualService:
+    enabled: true
+    hosts:
+      - "camunda.example.com"
+    gateways: []
+    retries:
+      attempts: 3
+      perTryTimeout: "2s"
+    timeout: "30s"
+  
+  # Destination Rule Configuration
+  destinationRule:
+    enabled: true
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: "30ms"
+      http:
+        http2MaxRequests: 1024
+        maxRequestsPerConnection: 10
+        maxRetries: 3
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: "30s"
+      baseEjectionTime: "30s"
+      maxEjectionPercent: 100
+  
+  # mTLS Configuration
+  mtls:
+    enabled: true
+    mode: STRICT  # STRICT, PERMISSIVE
+  
+  # Authorization Policy
+  authorizationPolicy:
+    enabled: true
+    jwt:
+      enabled: false # true
+      issuers: []
+    allowedNamespaces: []
+    allowedPrincipals: []
+    customRules: []
+
+# =============================================================================
+# Monitoring Configuration
+# =============================================================================
+monitoring:
+  enabled: true
+  
+  # ServiceMonitor Configuration
+  serviceMonitor:
+    enabled: true
+    scrapeInterval: "30s"
+  alertRules:
+    enabled: true
+    rules:
+      - alert: HighMemoryUsage
+        expr: container_memory_usage_bytes{pod=~"camunda-.*"} > 1.8e9
+      - alert: HighCPUUsage
+        expr: container_cpu_usage_seconds_total{pod=~"camunda-.*"} > 1.8
+
+  
+  # Prometheus Configuration
+  prometheus:
+    enabled: true
+    alerting:
+      enabled: true
+      additionalRules: []
+  
+  # Grafana Configuration
+  grafana:
+    enabled: true
+    dashboards:
+      enabled: true
+    additionalDashboards: []
+  
+  # Alert Configuration
+  alertRules:
+    enabled: true
+    processCountThreshold: 1000
+    failureRateThreshold: 0.1
+    custom: []
+
+# =============================================================================
+# Health Check Configuration
+# =============================================================================
+health:
+  # Liveness Probe
+  livenessProbe:
+    enabled: true
+    path: /camunda/health
+    initialDelaySeconds: 90
+    periodSeconds: 10
+    failureThreshold: 5
+    timeoutSeconds: 5
+  
+  # Readiness Probe
+  readinessProbe:
+    enabled: true
+    path: /camunda/health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 3
+    timeoutSeconds: 5
+  
+  # Startup Probe
+  startupProbe:
+    enabled: true
+    path: /camunda/health
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 30
+    timeoutSeconds: 5
+
+# =============================================================================
+# Persistence Configuration
+# =============================================================================
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 8Gi
+  # storageClass: ""
+  annotations: {}
+
+# =============================================================================
+# Backup Configuration
+# =============================================================================
+backup:
+  enabled: true
+  schedule: "0 1 * * *"  # Daily at 1 AM
+  retention: 7  # Number of backups to retain
+  destination:
+    type: s3  # s3 or gcs
+    bucket: ""
+    prefix: "backups/"
+  credentials:
+    existingSecret: ""
+    # Or specify new credentials:
+    accessKey: ""
+    secretKey: ""
+
+# =============================================================================
+# Service & Ingress Configuration
+# =============================================================================
+# Service Configuration
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  # Optional node port configuration
+  # nodePort: 30000
+
+# Ingress Configuration (if not using Istio)
+ingress:
+  enabled: false
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+  hosts:
+    - host: camunda.local
+      paths: ["/"]
+  tls: []
+  # - secretName: camunda-tls
+  #   hosts:
+  #     - camunda.local
+
+# =============================================================================
+# Vault Integration
+# =============================================================================
+vault:
+  enabled: false
+  config:
+    address: "https://vault.example.com"
+    kvVersion: "v2"
+    namespace: ""
+  
+  # Authentication Configuration
+  auth:
+    role: "camunda-role"
+    mount: "kubernetes"
+  
+  # TLS Configuration
+  tls:
+    enabled: true
+    secretName: "vault-tls"
+  
+  # Secret Paths Configuration
+  secrets:
+    db-creds:
+      path: "camunda/database"
+      keys:
+        DB_USER: "username"
+        DB_PASSWORD: "password"
+    jwt-secret:
+      path: "camunda/jwt"
+      keys:
+        JWT_SECRET: "secret"
+    license:
+      path: "camunda/license"
+      keys:
+        LICENSE_KEY: "key"
+
+# =============================================================================
+# Additional Configuration
+# =============================================================================
+# Extra Environment Variables
+extraEnv: []
+  # - name: EXTRA_OPTS
+  #   value: "--debug"
+
+# Extra Volumes
+extraVolumes: []
+  # - name: extra-volume
+  #   configMap:
+  #     name: extra-configmap
+
+# Extra Volume Mounts
+extraVolumeMounts: []
+  # - name: extra-volume
+  #   mountPath: /etc/extra
+  #   readOnly: true
+
+# Pod Annotations
+podAnnotations: {}
+  # prometheus.io/scrape: "true"
+  # prometheus.io/port: "9404"
+
+# =============================================================================
+# Autoscaling Configuration
+# =============================================================================
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15

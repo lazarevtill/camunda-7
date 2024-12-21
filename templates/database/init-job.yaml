@@ -1,0 +1,84 @@
+# templates/database/init-job.yaml
+{{- if .Values.database.initJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}-db-init
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "camunda-bpm-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: db-init
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "camunda-bpm-platform.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: db-init
+          image: "{{ .Values.database.initJob.image.repository }}:{{ .Values.database.initJob.image.tag }}"
+          imagePullPolicy: {{ .Values.database.initJob.image.pullPolicy }}
+          env:
+            - name: PGHOST
+              {{- if .Values.postgresql.enabled }}
+              value: {{ include "camunda-bpm-platform.fullname" . }}-postgresql
+              {{- else }}
+              value: {{ .Values.database.host | quote }}
+              {{- end }}
+            - name: PGPORT
+              {{- if .Values.postgresql.enabled }}
+              value: "5432"
+              {{- else }}
+              value: {{ .Values.database.port | quote }}
+              {{- end }}
+            - name: PGDATABASE
+              {{- if .Values.postgresql.enabled }}
+              value: {{ .Values.postgresql.auth.database | quote }}
+              {{- else }}
+              value: {{ .Values.database.name | quote }}
+              {{- end }}
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "camunda-bpm-platform.fullname" . }}-db-credentials
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "camunda-bpm-platform.fullname" . }}-db-credentials
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for database to be ready..."
+              until pg_isready; do
+                sleep 2
+              done
+              echo "Database is ready, running initialization scripts..."
+              {{- range .Values.database.initJob.scripts }}
+              echo "Running script: {{ . }}"
+              psql -f /scripts/{{ . }}
+              {{- end }}
+              echo "Database initialization completed successfully"
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /scripts
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: {{ include "camunda-bpm-platform.fullname" . }}-db-init-scripts
+{{- end }}

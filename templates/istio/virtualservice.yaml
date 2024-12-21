@@ -1,0 +1,72 @@
+# templates/istio/virtualservice.yaml
+{{- if and .Values.istio.enabled .Values.istio.virtualService.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+spec:
+  hosts:
+    {{- range .Values.istio.virtualService.hosts }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- if or .Values.istio.gateway.enabled .Values.istio.virtualService.gateways }}
+  gateways:
+    {{- if .Values.istio.gateway.enabled }}
+    - {{ include "camunda-bpm-platform.fullname" . }}-gateway
+    {{- end }}
+    {{- range .Values.istio.virtualService.gateways }}
+    - {{ . }}
+    {{- end }}
+  {{- end }}
+  http:
+    - match:
+        - uri:
+            prefix: /camunda
+        - uri:
+            prefix: /engine-rest
+        - uri:
+            prefix: /actuator
+      route:
+        - destination:
+            host: {{ include "camunda-bpm-platform.fullname" . }}
+            port:
+              number: {{ .Values.service.port }}
+          weight: 100
+      retries:
+        attempts: {{ .Values.istio.virtualService.retries.attempts }}
+        perTryTimeout: {{ .Values.istio.virtualService.retries.perTryTimeout }}
+        retryOn: connect-failure,refused-stream,unavailable,cancelled,retriable-status-codes
+      timeout: {{ .Values.istio.virtualService.timeout }}
+      corsPolicy:
+        allowOrigins:
+          - exact: "*"
+        allowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        allowHeaders:
+          - authorization
+          - content-type
+          - x-requested-with
+        maxAge: "24h"
+        allowCredentials: true
+      headers:
+        request:
+          set:
+            x-forwarded-proto: https
+    {{- if .Values.metrics.enabled }}
+    - match:
+        - uri:
+            prefix: /metrics
+      route:
+        - destination:
+            host: {{ include "camunda-bpm-platform.fullname" . }}
+            port:
+              number: {{ .Values.metrics.port }}
+    {{- end }}
+{{- end }}

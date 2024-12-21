@@ -1,0 +1,31 @@
+# templates/istio/requestauthentication.yaml
+{{- if and .Values.istio.enabled .Values.istio.requestAuthentication.enabled }}
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "camunda-bpm-platform.selectorLabels" . | nindent 6 }}
+  jwtRules:
+    {{- range .Values.istio.requestAuthentication.jwtRules }}
+    - issuer: {{ .issuer }}
+      jwksUri: {{ .jwksUri }}
+      {{- if .audiences }}
+      audiences:
+        {{- toYaml .audiences | nindent 8 }}
+      {{- end }}
+      {{- if .fromHeaders }}
+      fromHeaders:
+        {{- toYaml .fromHeaders | nindent 8 }}
+      {{- end }}
+      {{- if .fromParams }}
+      fromParams:
+        {{- toYaml .fromParams | nindent 8 }}
+      {{- end }}
+      forwardOriginalToken: {{ .forwardOriginalToken | default true }}
+    {{- end }}
+{{- end }}

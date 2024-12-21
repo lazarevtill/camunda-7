@@ -1,0 +1,20 @@
+# templates/pod-security-standards.yaml
+{{- if .Values.security.podSecurityStandards.enabled }}
+apiVersion: pod-security.kubernetes.io/v1
+kind: PodSecurity
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}-pss
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+spec:
+  level: {{ .Values.security.podSecurityStandards.level | default "restricted" }}
+  enforce:
+    - pod-security.kubernetes.io/enforce: {{ .Values.security.podSecurityStandards.level | default "restricted" }}
+    - pod-security.kubernetes.io/enforce-version: "latest"
+  audit:
+    - pod-security.kubernetes.io/audit: {{ .Values.security.podSecurityStandards.level | default "restricted" }}
+    - pod-security.kubernetes.io/audit-version: "latest"
+  warn:
+    - pod-security.kubernetes.io/warn: {{ .Values.security.podSecurityStandards.level | default "restricted" }}
+    - pod-security.kubernetes.io/warn-version: "latest"
+{{- end }}

@@ -1,0 +1,85 @@
+apiVersion: v2
+name: camunda-bpm-platform
+description: 'Enterprise-ready Camunda BPM Platform 7 Helm chart with full Istio service mesh integration, robust PostgreSQL database handling, and enhanced security features.'
+type: application
+version: 8.0.0
+appVersion: "7.x.x"
+
+annotations:
+  artifacthub.io/changes: |
+    - kind: added
+      description: Integrated comprehensive Istio service mesh support
+      links:
+        - name: Documentation
+          url: https://istio.io/latest/docs/
+    - kind: added
+      description: Enhanced PostgreSQL integration with high availability options
+      links:
+        - name: Documentation
+          url: https://www.postgresql.org/docs/
+    - kind: changed
+      description: Improved security with mTLS and JWT support
+    - kind: changed
+      description: Enhanced monitoring and observability features
+    - kind: fixed
+      description: Stabilized database connection management
+    - kind: added
+      description: Circuit breaker and retry policies for resilience
+    - kind: security
+      description: Added security best practices and hardening
+  artifacthub.io/links: |
+    - name: Camunda BPM Platform Documentation
+      url: https://docs.camunda.org/manual/7.18/
+    - name: Source Code
+      url: https://github.com/camunda/camunda-bpm-platform
+    - name: Support
+      url: https://forum.camunda.org/
+
+keywords:
+- bpm
+- workflow
+- camunda
+- process-engine
+- istio
+- service-mesh
+- enterprise
+- postgresql
+
+home: https://camunda.com
+icon: https://docs.camunda.org/get-started/img/Camunda-Circle.svg
+
+maintainers:
+- name: lazarevtill
+  url: https://info.lazarev.cloud/
+
+dependencies:
+# PostgreSQL dependency
+- name: postgresql
+  version: "~12.5.5"
+  repository: "https://charts.bitnami.com/bitnami"
+  condition: postgresql.enabled
+  tags:
+  - database
+  - postgresql
+
+# Optional Prometheus dependency for metrics
+- name: prometheus
+  version: "~19.6.1"
+  repository: "https://prometheus-community.github.io/helm-charts"
+  condition: prometheus.enabled
+  tags:
+  - monitoring
+  - metrics
+
+# Optional Grafana dependency for dashboards
+- name: grafana
+  version: "~6.57.3"
+  repository: "https://grafana.github.io/helm-charts"
+  condition: grafana.enabled
+  tags:
+  - monitoring
+  - visualization
+
+sources:
+- https://github.com/camunda/camunda-bpm-platform
+- https://github.com/camunda/docker-camunda-bpm-platform

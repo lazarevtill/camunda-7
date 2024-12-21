@@ -1,0 +1,54 @@
+# charts/camunda-bpm-platform/.helmignore
+# Patterns to ignore when building packages.
+# This supports shell glob matching, relative path matching, and
+# negation (prefixed with !). Only one pattern per line.
+
+# Common VCS dirs
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+
+# Common backup files
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+
+# Various IDEs
+.project
+.idea/
+*.tmproj
+.vscode/
+.settings/
+.classpath
+
+# Development and testing
+tests/
+ci/
+examples/
+docs/
+*.test.yaml
+values.schema.json
+
+# Documentation source files
+*.md
+!README.md
+contributing.md
+changelog.md
+code-of-conduct.md
+
+# Build artifacts
+target/
+build/
+dist/
+
+# Local development files
+.env
+*.local
+node_modules/
+.DS_Store

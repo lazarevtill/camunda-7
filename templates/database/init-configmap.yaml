@@ -1,0 +1,38 @@
+# templates/database/init-configmap.yaml
+{{- if .Values.database.initJob.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}-db-init-scripts
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+data:
+  # Default schema creation script
+  01-create-schema.sql: |
+    CREATE SCHEMA IF NOT EXISTS camunda;
+    
+    -- Set search path
+    ALTER DATABASE {{ .Values.postgresql.auth.database }} SET search_path TO camunda,public;
+    
+    -- Grant privileges
+    GRANT ALL PRIVILEGES ON SCHEMA camunda TO {{ .Values.postgresql.auth.username }};
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA camunda TO {{ .Values.postgresql.auth.username }};
+    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA camunda TO {{ .Values.postgresql.auth.username }};
+    
+    -- Create extensions if needed
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+  # Performance optimizations
+  02-optimize-performance.sql: |
+    ALTER SYSTEM SET max_connections = '{{ .Values.database.postgres.maxConnections | default 100 }}';
+    ALTER SYSTEM SET shared_buffers = '{{ .Values.database.postgres.sharedBuffers | default "256MB" }}';
+    ALTER SYSTEM SET work_mem = '{{ .Values.database.postgres.workMem | default "4MB" }}';
+    ALTER SYSTEM SET maintenance_work_mem = '{{ .Values.database.postgres.maintenanceWorkMem | default "64MB" }}';
+    ALTER SYSTEM SET effective_cache_size = '{{ .Values.database.postgres.effectiveCacheSize | default "1GB" }}';
+    
+    -- Add custom init scripts from values
+    {{- range $key, $value := .Values.database.initJob.customScripts }}
+    {{ $key }}: |
+      {{- $value | nindent 6 }}
+    {{- end }}
+{{- end }}

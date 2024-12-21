@@ -1,0 +1,367 @@
+# templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+    {{- if .Values.istio.enabled }}
+    version: v1
+    {{- end }}
+  annotations:
+    checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    {{- if .Values.vault.enabled }}
+    vault.hashicorp.com/namespace: {{ .Values.vault.config.namespace | quote }}
+    {{- end }}
+    # Add deployment tracking
+    kubernetes.io/change-cause: "{{ .Release.Name }} deployment at {{ now | date "2006-01-02T15:04:05Z07:00" }}"
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "camunda-bpm-platform.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.deployment.maxSurge | default 1 }}
+      maxUnavailable: {{ .Values.deployment.maxUnavailable | default 0 }}
+  minReadySeconds: {{ .Values.deployment.minReadySeconds | default 30 }}
+  revisionHistoryLimit: {{ .Values.deployment.revisionHistoryLimit | default 10 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secrets: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.vault.enabled }}
+        {{- include "camunda-bpm-platform.vault.annotations" . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.istio.enabled }}
+        proxy.istio.io/config: |
+          terminationDrainDuration: 60s
+          holdApplicationUntilProxyStarts: true
+        sidecar.istio.io/inject: "true"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "camunda-bpm-platform.selectorLabels" . | nindent 8 }}
+        {{- if .Values.istio.enabled }}
+        version: v1
+        {{- end }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      # Security Context for the Pod
+      securityContext:
+        {{- toYaml .Values.security.podSecurityContext | nindent 8 }}
+      
+      # Service Account Configuration
+      serviceAccountName: {{ include "camunda-bpm-platform.serviceAccountName" . }}
+      automountServiceAccountToken: {{ or .Values.vault.enabled .Values.istio.enabled }}
+      
+      # Image Pull Secrets
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Dependency Init Containers
+      {{- if .Values.postgresql.enabled }}
+      initContainers:
+        - name: wait-for-postgresql
+          image: "{{ .Values.initContainers.waitForPostgres.image.repository }}:{{ .Values.initContainers.waitForPostgres.image.tag | default "1.36.1" }}"
+          imagePullPolicy: {{ .Values.initContainers.waitForPostgres.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - >
+              until nc -z {{ include "camunda-bpm-platform.database.host" . }} {{ include "camunda-bpm-platform.database.port" . }};
+              do echo "Waiting for PostgreSQL...";
+              sleep 2;
+              done;
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      {{- end }}
+      
+      # Additional Init Containers from values
+      {{- if .Values.initContainers }}
+        {{- toYaml .Values.initContainers | nindent 8 }}
+      {{- end }}
+      
+      # Main Application Container
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.security.containerSecurityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          # Lifecycle Hooks
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+          
+          # Environment Variables
+          env:
+            # Basic Configuration
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            
+            # JVM Configuration
+            - name: JAVA_TOOL_OPTIONS
+              value: >-
+                -XX:+UseContainerSupport
+                -XX:MaxRAMPercentage=75.0
+                -XX:+HeapDumpOnOutOfMemoryError
+                -XX:HeapDumpPath=/tmp/heapdump.hprof
+                -XX:+ExitOnOutOfMemoryError
+                {{ .Values.javaOpts | default "" }}
+            
+            # Database Configuration
+            - name: SPRING_DATASOURCE_URL
+              value: {{ include "camunda-bpm-platform.database.url" . | quote }}
+            {{- if .Values.vault.enabled }}
+            # Vault-managed Database Credentials
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "camunda-bpm-platform.fullname" . }}-vault
+                  key: DB_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "camunda-bpm-platform.fullname" . }}-vault
+                  key: DB_PASSWORD
+            # Additional Vault-managed Secrets
+            - name: CAMUNDA_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "camunda-bpm-platform.fullname" . }}-vault
+                  key: JWT_SECRET
+            - name: CAMUNDA_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "camunda-bpm-platform.fullname" . }}-vault
+                  key: LICENSE_KEY
+            {{- else }}
+            # Standard Kubernetes Secrets
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "camunda-bpm-platform.database.secretName" . }}
+                  key: {{ include "camunda-bpm-platform.database.secretUsernameKey" . }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "camunda-bpm-platform.database.secretName" . }}
+                  key: {{ include "camunda-bpm-platform.database.secretPasswordKey" . }}
+            {{- end }}
+            
+            # Additional Environment Variables
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          
+          # Container Ports
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.jmx.enabled }}
+            - name: jmx
+              containerPort: {{ .Values.jmx.port }}
+              protocol: TCP
+            {{- end }}
+          
+          # Liveness Probe with circuit breaker
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+              {{- if .Values.security.tls.enabled }}
+              scheme: HTTPS
+              {{- end }}
+              httpHeaders:
+                - name: X-Probe-Type
+                  value: liveness
+            initialDelaySeconds: {{ .Values.health.livenessProbe.initialDelaySeconds | default 90 }}
+            periodSeconds: {{ .Values.health.livenessProbe.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.health.livenessProbe.timeoutSeconds | default 5 }}
+            failureThreshold: {{ .Values.health.livenessProbe.failureThreshold | default 5 }}
+            successThreshold: {{ .Values.health.livenessProbe.successThreshold | default 1 }}
+          
+          # Readiness Probe with database check
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+              {{- if .Values.security.tls.enabled }}
+              scheme: HTTPS
+              {{- end }}
+              httpHeaders:
+                - name: X-Probe-Type
+                  value: readiness
+            initialDelaySeconds: {{ .Values.health.readinessProbe.initialDelaySeconds | default 30 }}
+            periodSeconds: {{ .Values.health.readinessProbe.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.health.readinessProbe.timeoutSeconds | default 5 }}
+            failureThreshold: {{ .Values.health.readinessProbe.failureThreshold | default 3 }}
+            successThreshold: {{ .Values.health.readinessProbe.successThreshold | default 1 }}
+          
+          # Startup Probe for slow starting instances
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+              {{- if .Values.security.tls.enabled }}
+              scheme: HTTPS
+              {{- end }}
+              httpHeaders:
+                - name: X-Probe-Type
+                  value: startup
+            initialDelaySeconds: {{ .Values.health.startupProbe.initialDelaySeconds | default 60 }}
+            periodSeconds: {{ .Values.health.startupProbe.periodSeconds | default 10 }}
+            failureThreshold: {{ .Values.health.startupProbe.failureThreshold | default 30 }}
+            timeoutSeconds: {{ .Values.health.startupProbe.timeoutSeconds | default 5 }}
+            successThreshold: {{ .Values.health.startupProbe.successThreshold | default 1 }}
+          
+          # Resource Limits
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          
+          # Volume Mounts
+          volumeMounts:
+            # Configuration Volume
+            - name: config
+              mountPath: /camunda/configuration
+              readOnly: true
+            
+            # Temporary Storage
+            - name: tmp
+              mountPath: /tmp
+            
+            {{- if .Values.persistence.enabled }}
+            # Persistent Storage
+            - name: data
+              mountPath: /camunda/data
+            {{- end }}
+            
+            {{- if .Values.vault.enabled }}
+            # Vault Secrets Volume
+            - name: vault-secrets
+              mountPath: /vault/secrets
+              readOnly: true
+            
+            # Vault TLS Volume (if TLS is enabled)
+            {{- if .Values.vault.tls.enabled }}
+            - name: vault-tls
+              mountPath: /vault/tls
+              readOnly: true
+            {{- end }}
+            {{- end }}
+            
+            # Additional Volume Mounts
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      
+      # Volumes Configuration
+      volumes:
+        # Configuration Volume
+        - name: config
+          configMap:
+            name: {{ include "camunda-bpm-platform.fullname" . }}
+        
+        # Temporary Storage
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+        
+        {{- if .Values.persistence.enabled }}
+        # Persistent Storage
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "camunda-bpm-platform.fullname" . }}-data
+        {{- end }}
+        
+        {{- if .Values.vault.enabled }}
+        # Vault Secrets Volume
+        - name: vault-secrets
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        
+        # Vault TLS Volume (if TLS is enabled)
+        {{- if .Values.vault.tls.enabled }}
+        - name: vault-tls
+          secret:
+            secretName: {{ .Values.vault.tls.secretName }}
+            defaultMode: 0400
+        {{- end }}
+        {{- end }}
+        
+        # Additional Volumes
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      
+      # Node Selection
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Affinity Rules
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  {{- include "camunda-bpm-platform.selectorLabels" . | nindent 18 }}
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
+      
+      # Tolerations
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Termination Grace Period
+      terminationGracePeriodSeconds: {{ .Values.deployment.terminationGracePeriodSeconds | default 60 }}

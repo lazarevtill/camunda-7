@@ -1,0 +1,138 @@
+# templates/service.yaml
+{{- if .Values.service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+    {{- if .Values.istio.enabled }}
+    service.istio.io/canonical-name: {{ include "camunda-bpm-platform.fullname" . }}
+    service.istio.io/canonical-revision: {{ .Chart.AppVersion | quote }}
+    {{- end }}
+    {{- with .Values.service.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.service.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if .Values.istio.enabled }}
+    networking.istio.io/exportTo: "*"
+    {{- end }}
+    {{- if .Values.monitoring.enabled }}
+    prometheus.io/scrape: "true"
+    prometheus.io/path: {{ .Values.monitoring.path | default "/actuator/prometheus" | quote }}
+    prometheus.io/port: {{ .Values.monitoring.port | default "8080" | quote }}
+    {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- if and (eq .Values.service.type "LoadBalancer") .Values.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.service.loadBalancerIP }}
+  {{- end }}
+  {{- with .Values.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- with .Values.service.sessionAffinity }}
+  sessionAffinity: {{ . }}
+  {{- end }}
+  ports:
+    # Main application port
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
+
+    {{- if .Values.metrics.enabled }}
+    # Metrics port
+    - port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+      {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) .Values.metrics.nodePort }}
+      nodePort: {{ .Values.metrics.nodePort }}
+      {{- end }}
+    {{- end }}
+
+    {{- if .Values.rest.enabled }}
+    # REST API port
+    - port: {{ .Values.rest.port }}
+      targetPort: rest
+      protocol: TCP
+      name: rest
+      {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) .Values.rest.nodePort }}
+      nodePort: {{ .Values.rest.nodePort }}
+      {{- end }}
+    {{- end }}
+
+    {{- with .Values.service.extraPorts }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  
+  selector:
+    {{- include "camunda-bpm-platform.selectorLabels" . | nindent 4 }}
+{{- end }}
+
+{{- if and .Values.metrics.enabled .Values.metrics.service.enabled }}
+---
+# Separate service for metrics if enabled
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}-metrics
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+    {{- with .Values.metrics.service.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.metrics.service.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    prometheus.io/scrape: "true"
+    prometheus.io/path: {{ .Values.monitoring.path | default "/actuator/prometheus" | quote }}
+    prometheus.io/port: {{ .Values.metrics.port | quote }}
+spec:
+  type: {{ .Values.metrics.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "camunda-bpm-platform.selectorLabels" . | nindent 4 }}
+{{- end }}
+
+{{- if and .Values.rest.enabled .Values.rest.service.enabled }}
+---
+# Separate service for REST API if enabled
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "camunda-bpm-platform.fullname" . }}-rest
+  labels:
+    {{- include "camunda-bpm-platform.labels" . | nindent 4 }}
+    {{- with .Values.rest.service.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.rest.service.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if .Values.istio.enabled }}
+    networking.istio.io/exportTo: "*"
+    {{- end }}
+spec:
+  type: {{ .Values.rest.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ .Values.rest.port }}
+      targetPort: rest
+      protocol: TCP
+      name: rest
+  selector:
+    {{- include "camunda-bpm-platform.selectorLabels" . | nindent 4 }}
+{{- end }}
