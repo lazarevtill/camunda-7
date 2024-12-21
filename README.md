@@ -1,8 +1,10 @@
 # Camunda BPM Platform Enterprise Helm Chart
 
-![Version: 8.0.0](https://img.shields.io/badge/Version-8.0.0-informational?style=flat-square)
-![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)
-![AppVersion: 7.x.x](https://img.shields.io/badge/AppVersion-7.x.x-informational?style=flat-square)
+---
+
+Original helm chart was here: https://github.com/camunda-community-hub/camunda-7-community-helm
+
+---
 
 Enterprise-ready Camunda BPM Platform 7 Helm chart with full Istio service mesh integration and robust PostgreSQL database handling.
 
